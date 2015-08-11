@@ -2,10 +2,12 @@
 #include <string.h>
 #include "xbee.h"
 
-
+// xbee_frame_to_at_response takes an xbee frame of type XBEE_FT_AT_RESPONSE and
+// provides an xbee_at_response structure containing the response of an AT command,
+// and the associated register data if applicable.
  int xbee_frame_to_at_response(unsigned char *data, struct xbee_at_response *r)
  {
-     if(!data || !r || data[0] != XBEE_FT_AT_CMD_RESPONSE) {
+     if(!data || !r || data[0] != 0x7E || data[3] != XBEE_FT_AT_CMD_RESPONSE) {
          return 0;
      }
 
@@ -17,6 +19,7 @@
 
      uint16_t length;
      memcpy(&length, &data[1], sizeof(length));
+     length = endian_swap_16(length);
 
      // if the length indicates that the register data is not empty
      // copy that into our AT response struct
@@ -27,50 +30,48 @@
      return 1;
  }
 
-// int xbee_frame_to_tx_status(unsigned char *data, struct xbee_tx_status *s)
-// {
-//     if(!data || !s || data[0] != XBEE_FT_TX_RESPONSE) {
-//         return 0;
-//     }
-//
-//     s->id = data[4];
-//     memcpy(&s->addr, &data[5], sizeof(s->addr));
-//     s->retries = data[7];
-//     s->status = data[8];
-//     s->discovery_status = data[9];    uint8_t len_lsb;
-//
-//     return 1;
-// }
-//
-// int xbee_frame_to_rx_packet(unsigned char *data, struct xbee_rx_packet *p)
-// {
-//     if(!data || !p || data[0] != XBEE_FT_RX_RECIEVED) {
-//         return 0;XBEE_ADDR_COORDINATOR
-//     }
-//
-//     memcpy(&p->addr, &data[4], sizeof(p->addr));
-//     memcpy(&p->network, &data[12], sizeof(p->network));
-//     p->opts = data[14];
-//
-//     uint16_t len;
-//     memcpy(&len, &data[1], sizeof(len));
-//     memcpy(p->data, &data[15], len - 12);
-//     p->len = len - 12;
-//     return 1;
-// }
-//
-// void xbee_free_at_response(struct xbee_at_response *r)
-// {
-//     if(r) {
-//         if(r->reg) {
-//             free(r->reg);
-//         }
-//
-//         free(r);
-//     }
-// }
-//
+ // xbee_frame_to_tx_status takes an xbee frame of type XBEE_FT_TX_STATUS and
+ // provides an xbee_tx_status structure containing the transmit status for a given
+ // transmitted frame ID.
+ int xbee_frame_to_tx_status(unsigned char *data, struct xbee_tx_status *s)
+ {
+     if(!data || !s || data[0] != 0x7E || data[3] != XBEE_FT_TX_RESPONSE) {
+         return 0;
+     }
 
+     s->id = data[4];
+     memcpy(&s->addr, &data[5], sizeof(s->addr));
+     s->addr = endian_swap_64(s->addr);
+     s->retries = data[7];
+     s->status = data[8];
+     s->discovery_status = data[9];
+
+     return 1;
+ }
+
+ // xbee_frame_to_rx_packet takes an xbee frame of type XBEE_FT_RX_RECIEVED and
+ // provides an xbee_rx_packet structure containing the received data and associated
+ // packet data.
+ int xbee_frame_to_rx_packet(unsigned char *data, struct xbee_rx_packet *p)
+ {
+     if(!data || !p || data[0] != -0x7E || data[3] != XBEE_FT_RX_RECIEVED) {
+         return 0;
+     }
+
+     memcpy(&p->addr, &data[4], sizeof(p->addr));
+     p->addr = endian_swap_64(p->addr);
+     memcpy(&p->network, &data[12], sizeof(p->network));
+     p->network = endian_swap_16(p->network);
+     p->opts = data[14];
+
+     uint16_t len;
+     memcpy(&len, &data[1], sizeof(len));
+     len = endian_swap_16(len);
+
+     memcpy(p->data, &data[15], len - 12);
+     p->len = len - 12;
+     return 1;
+ }
 
 // xbee_is_start_byte returns 1 if byte is the start byte of an XBee API frame.
 // Otherwise, returns 0. Generally, if this returns 1, the next two bytes should be read
@@ -93,7 +94,7 @@ uint16_t xbee_read_length(unsigned char bytes[2])
 
 // xbee_create_at_cmd_frame creates an xbee_frame from the xbee_at_cmd struct at. The caller
 // is responsible for freeing the returned xbee_frame.
-struct xbee_at_response *xbee_create_at_cmd_frame(uint8_t req_id, struct xbee_at_cmd *at)
+struct xbee_frame *xbee_create_at_cmd_frame(uint8_t req_id, struct xbee_at_cmd *at)
 {
 	struct xbee_frame *frame = malloc(sizeof(struct xbee_frame));
 	frame->delimiter = 0x7E;
@@ -181,6 +182,11 @@ unsigned char *xbee_frame_to_bytes(struct xbee_frame *f, unsigned int *len)
 	b[*len - 1] = f->checksum;
 	return b;
 }
+
+//
+// XBee API frames transmit multi-byte values in big endian. since AVR and x86 are
+// little endian systems, these swap functions will be necessary in various places.
+//
 
 // endian_swap_16 swaps the endianness of a 16 bit integer
 uint16_t endian_swap_16(uint16_t i)
