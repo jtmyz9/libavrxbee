@@ -89,10 +89,17 @@ struct xbee_tx_request {
     int len;
 };
 
+struct xbee_at_cmd {
+	char cmd[2];
+	unsigned int param_len;
+	char *param;
+};
+
 struct xbee_at_response {
     uint8_t id;
     char cmd[2];
     xbee_at_status status;
+    unsigned int reg_len;
     unsigned char *reg;
 };
 
